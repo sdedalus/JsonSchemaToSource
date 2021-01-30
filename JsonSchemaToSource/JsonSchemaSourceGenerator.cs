@@ -2,9 +2,12 @@
 using Microsoft.CodeAnalysis.Text;
 using NJsonSchema;
 using NJsonSchema.CodeGeneration.CSharp;
+
+using System.Diagnostics.Contracts;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace JsonSchemaToSource
 {
@@ -13,37 +16,47 @@ namespace JsonSchemaToSource
     {
         public void Execute(GeneratorExecutionContext context)
         {
-            var files = context
-                .AdditionalFiles
-                .Select(x => x.Path)
-                .Where(at => at.EndsWith(".json.schema"))
-                .Select(GetJsonSchemaAndName)
-                .Select(GetFileContentsAndName);
-
-            foreach (var file in files)
+            if (!context.AnalyzerConfigOptions.GlobalOptions.TryGetValue("build_property.RootNamespace", out var rootNamespace))
             {
-                // inject the created source into the users compilation
+                return;
+            }
+
+            string GetNamespace(AdditionalText file)
+            {
+                //Contract.Assert(false);
+                if (context.AnalyzerConfigOptions.GetOptions(file).TryGetValue("build_metadata.AdditionalFiles.Namespace", out var @namespace)
+                 && !string.IsNullOrWhiteSpace(@namespace))
+                    return @namespace;
+                else
+                    return rootNamespace;
+            }
+
+            var files = from file in context.AdditionalFiles
+                        let path = file.Path
+                        where path.EndsWith(".json.schema")
+                        let @namespace = GetNamespace(file)
+                        select GenerateSourceFromSchemaFileAsync(path, @namespace);
+
+            var tasks = files.ToList();
+            while (tasks.Any())
+            {
+                var tasksArray = tasks.ToArray();
+                var completedFileIndex = Task.WaitAny(tasksArray);
+                var completedFileTask = tasksArray[completedFileIndex];
+                var file = completedFileTask.Result;
                 context.AddSource(file.name, SourceText.From(file.file, Encoding.UTF8));
+                tasks.Remove(completedFileTask);
             }
         }
 
-        private static (string file, string name) GetFileContentsAndName((JsonSchema file, string name) schema)
-        {
-            var fileGenerator = new CSharpGenerator(schema.file);
-
-            var file = fileGenerator
-                .GenerateFile(schema.name)
-                .Replace("namespace MyNamespace", "namespace JsonClass")
-                ;
-
-            return (file, schema.name);
-        }
-
-        private static (JsonSchema file, string name) GetJsonSchemaAndName(string path)
+        private static async Task<(string name, string file)> GenerateSourceFromSchemaFileAsync(string path, string @namespace)
         {
             var name = Path.GetFileNameWithoutExtension(Path.GetFileNameWithoutExtension(path));
-            var file = JsonSchema.FromFileAsync(path).Result;
-            return (file, name);
+            var schema = await JsonSchema.FromFileAsync(path);
+            var settings = new CSharpGeneratorSettings { Namespace = @namespace };
+            var fileGenerator = new CSharpGenerator(schema, settings);
+            string file = fileGenerator.GenerateFile(name);
+            return (name, file);
         }
 
         public void Initialize(GeneratorInitializationContext context)
