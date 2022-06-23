@@ -9,7 +9,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.DependencyValidation.Analyzers" Version="0.11.0" />
-    <PackageReference Include="Newtonsoft.Json" Version="12.0.3" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
     <!--<AdditionalFiles Include="Payload.json.schema" Namespace="JsonClass">-->
     <AdditionalFiles Include="Payload.json.schema">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
